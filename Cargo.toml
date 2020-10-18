@@ -1,5 +1,5 @@
 [package]
-name = "rust-game"
+name = "rust_game"
 version = "0.1.0"
 authors = ["Andrzej Swatowski <andrzejswatowski@outlook.com>"]
 edition = "2018"
