@@ -11,6 +11,15 @@ use ash::extensions::mvk::MacOSSurface;
 use ash::extensions::ext::DebugUtils;
 use ash::extensions::khr::Surface;
 
+#[cfg(target_os = "macos")]
+use cocoa::appkit::{NSView, NSWindow};
+#[cfg(target_os = "macos")]
+use cocoa::base::id as cocoa_id;
+#[cfg(target_os = "macos")]
+use metal::CoreAnimationLayer;
+#[cfg(target_os = "macos")]
+use objc::runtime::YES;
+
 // required extension ------------------------------------------------------
 #[cfg(target_os = "macos")]
 pub fn required_extension_names() -> Vec<*const i8> {
