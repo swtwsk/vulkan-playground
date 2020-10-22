@@ -1,3 +1,5 @@
+pub mod pipeline;
+
 use crate::utility::{constants, debug, platforms, structures::*, tools};
 
 use ash::version::{EntryV1_0, InstanceV1_0};
