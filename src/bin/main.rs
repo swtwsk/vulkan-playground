@@ -1,9 +1,7 @@
 use rust_game::utility::{
     constants,
     constants::{DEVICE_EXTENSIONS, VALIDATION},
-    debug, share,
-    structures::QueueFamilyIndices,
-    window,
+    debug, share, window,
 };
 
 use ash::version::{DeviceV1_0, InstanceV1_0};
@@ -13,9 +11,18 @@ use winit::event::{ElementState, Event, KeyboardInput, VirtualKeyCode, WindowEve
 use winit::event_loop::{ControlFlow, EventLoop};
 
 // Constants
-const WINDOW_TITLE: &'static str = "14.Command Buffers";
+const WINDOW_TITLE: &'static str = "15.Hello Triangle";
+const MAX_FRAMES_IN_FLIGHT: usize = 2;
+
+struct SyncObjects {
+    image_available_semaphores: Vec<vk::Semaphore>,
+    render_finished_semaphores: Vec<vk::Semaphore>,
+    inflight_fences: Vec<vk::Fence>,
+}
 
 struct VulkanApp {
+    window: winit::window::Window,
+
     _entry: ash::Entry,
     instance: ash::Instance,
     surface_loader: ash::extensions::khr::Surface,
@@ -26,8 +33,8 @@ struct VulkanApp {
     _physical_device: vk::PhysicalDevice,
     device: ash::Device, // Logical Device
 
-    _graphics_queue: vk::Queue,
-    _present_queue: vk::Queue,
+    graphics_queue: vk::Queue,
+    present_queue: vk::Queue,
 
     swapchain_loader: ash::extensions::khr::Swapchain,
     swapchain: vk::SwapchainKHR,
@@ -42,11 +49,23 @@ struct VulkanApp {
     graphics_pipeline: vk::Pipeline,
 
     command_pool: vk::CommandPool,
-    _command_buffers: Vec<vk::CommandBuffer>,
+    command_buffers: Vec<vk::CommandBuffer>,
+
+    image_available_semaphores: Vec<vk::Semaphore>,
+    render_finished_semaphores: Vec<vk::Semaphore>,
+    inflight_fences: Vec<vk::Fence>,
+    current_frame: usize,
 }
 
 impl VulkanApp {
-    pub fn new(window: &winit::window::Window) -> VulkanApp {
+    pub fn new(event_loop: &winit::event_loop::EventLoop<()>) -> VulkanApp {
+        let window = window::init_window(
+            event_loop,
+            WINDOW_TITLE,
+            constants::WINDOW_WIDTH,
+            constants::WINDOW_HEIGHT,
+        );
+
         let entry = ash::Entry::new().unwrap();
         let instance = share::create_instance(
             &entry,
@@ -74,7 +93,7 @@ impl VulkanApp {
             &instance,
             &logical_device,
             physical_device,
-            window,
+            &window,
             &surface_stuff,
             &family_indices,
         );
@@ -96,8 +115,8 @@ impl VulkanApp {
             &swapchain_imageviews,
             &swapchain_stuff.swapchain_extent,
         );
-        let command_pool = VulkanApp::create_command_pool(&logical_device, &family_indices);
-        let command_buffers = VulkanApp::create_command_buffers(
+        let command_pool = share::pipeline::create_command_pool(&logical_device, &family_indices);
+        let command_buffers = share::pipeline::create_command_buffers(
             &logical_device,
             command_pool,
             graphics_pipeline,
@@ -105,8 +124,11 @@ impl VulkanApp {
             render_pass,
             swapchain_stuff.swapchain_extent,
         );
+        let sync_objects = VulkanApp::create_sync_objects(&logical_device);
 
         VulkanApp {
+            window,
+
             _entry: entry,
             instance,
             surface: surface_stuff.surface,
@@ -117,8 +139,8 @@ impl VulkanApp {
             _physical_device: physical_device,
             device: logical_device,
 
-            _graphics_queue: graphics_queue,
-            _present_queue: present_queue,
+            graphics_queue,
+            present_queue,
 
             swapchain_loader: swapchain_stuff.swapchain_loader,
             swapchain: swapchain_stuff.swapchain,
@@ -133,112 +155,129 @@ impl VulkanApp {
             graphics_pipeline,
 
             command_pool,
-            _command_buffers: command_buffers,
+            command_buffers,
+
+            image_available_semaphores: sync_objects.image_available_semaphores,
+            render_finished_semaphores: sync_objects.render_finished_semaphores,
+            inflight_fences: sync_objects.inflight_fences,
+            current_frame: 0,
         }
     }
 
-    fn create_command_pool(
-        device: &ash::Device,
-        queue_families: &QueueFamilyIndices,
-    ) -> vk::CommandPool {
-        let command_pool_create_info = vk::CommandPoolCreateInfo {
-            s_type: vk::StructureType::COMMAND_POOL_CREATE_INFO,
+    fn create_sync_objects(device: &ash::Device) -> SyncObjects {
+        let mut sync_objects = SyncObjects {
+            image_available_semaphores: vec![],
+            render_finished_semaphores: vec![],
+            inflight_fences: vec![],
+        };
+
+        let semaphore_create_info = vk::SemaphoreCreateInfo {
+            s_type: vk::StructureType::SEMAPHORE_CREATE_INFO,
             p_next: ptr::null(),
-            flags: vk::CommandPoolCreateFlags::empty(),
-            queue_family_index: queue_families.graphics_family.unwrap(),
+            flags: vk::SemaphoreCreateFlags::empty(),
         };
 
-        unsafe {
-            device
-                .create_command_pool(&command_pool_create_info, None)
-                .expect("Failed to create Command Pool")
-        }
-    }
-
-    fn create_command_buffers(
-        device: &ash::Device,
-        command_pool: vk::CommandPool,
-        graphics_pipeline: vk::Pipeline,
-        framebuffers: &Vec<vk::Framebuffer>,
-        render_pass: vk::RenderPass,
-        surface_extent: vk::Extent2D,
-    ) -> Vec<vk::CommandBuffer> {
-        let command_buffer_allocate_info = vk::CommandBufferAllocateInfo {
-            s_type: vk::StructureType::COMMAND_BUFFER_ALLOCATE_INFO,
+        let fence_create_info = vk::FenceCreateInfo {
+            s_type: vk::StructureType::FENCE_CREATE_INFO,
             p_next: ptr::null(),
-            command_buffer_count: framebuffers.len() as u32,
-            command_pool,
-            level: vk::CommandBufferLevel::PRIMARY,
+            flags: vk::FenceCreateFlags::SIGNALED,
         };
 
-        let command_buffers = unsafe {
-            device
-                .allocate_command_buffers(&command_buffer_allocate_info)
-                .expect("Failed to allocate Command Buffers")
-        };
-
-        for (i, &command_buffer) in command_buffers.iter().enumerate() {
-            let command_buffer_begin_info = vk::CommandBufferBeginInfo {
-                s_type: vk::StructureType::COMMAND_BUFFER_BEGIN_INFO,
-                p_next: ptr::null(),
-                p_inheritance_info: ptr::null(),
-                flags: vk::CommandBufferUsageFlags::empty(),
-            };
-
+        for _ in 0..MAX_FRAMES_IN_FLIGHT {
             unsafe {
-                device
-                    .begin_command_buffer(command_buffer, &command_buffer_begin_info)
-                    .expect("Failed to begin recording Command Buffer at beginning");
-            }
+                let image_available_semaphore = device
+                    .create_semaphore(&semaphore_create_info, None)
+                    .expect("Failed to create Semaphore Object");
+                let render_finished_semaphore = device
+                    .create_semaphore(&semaphore_create_info, None)
+                    .expect("Failed to create Semaphore Object");
+                let inflight_fence = device
+                    .create_fence(&fence_create_info, None)
+                    .expect("Failed to create Fence Object");
 
-            let clear_values = [vk::ClearValue {
-                color: vk::ClearColorValue {
-                    float32: [0.0, 0.0, 0.0, 1.0],
-                },
-            }];
-
-            let render_pass_begin_info = vk::RenderPassBeginInfo {
-                s_type: vk::StructureType::RENDER_PASS_BEGIN_INFO,
-                p_next: ptr::null(),
-                render_pass,
-                framebuffer: framebuffers[i],
-                render_area: vk::Rect2D {
-                    offset: vk::Offset2D { x: 0, y: 0 },
-                    extent: surface_extent,
-                },
-                clear_value_count: clear_values.len() as u32,
-                p_clear_values: clear_values.as_ptr(),
-            };
-
-            unsafe {
-                device.cmd_begin_render_pass(
-                    command_buffer,
-                    &render_pass_begin_info,
-                    vk::SubpassContents::INLINE,
-                );
-                device.cmd_bind_pipeline(
-                    command_buffer,
-                    vk::PipelineBindPoint::GRAPHICS,
-                    graphics_pipeline,
-                );
-                device.cmd_draw(command_buffer, 3, 1, 0, 0);
-
-                device.cmd_end_render_pass(command_buffer);
-
-                device
-                    .end_command_buffer(command_buffer)
-                    .expect("Failed to record Command Buffer at Ending");
+                sync_objects
+                    .image_available_semaphores
+                    .push(image_available_semaphore);
+                sync_objects
+                    .render_finished_semaphores
+                    .push(render_finished_semaphore);
+                sync_objects.inflight_fences.push(inflight_fence);
             }
         }
 
-        command_buffers
+        sync_objects
     }
 
     fn draw_frame(&mut self) {
-        // Drawing will be here. For now, it will force Drop::drop.
+        let wait_fences = [self.inflight_fences[self.current_frame]];
+
+        let (image_index, _is_sub_optimal) = unsafe {
+            self.device
+                .wait_for_fences(&wait_fences, true, std::u64::MAX)
+                .expect("Failed to wait for Fence!");
+
+            self.swapchain_loader
+                .acquire_next_image(
+                    self.swapchain,
+                    std::u64::MAX,
+                    self.image_available_semaphores[self.current_frame],
+                    vk::Fence::null(),
+                )
+                .expect("Failed to acquire next image")
+        };
+
+        let wait_semaphores = [self.image_available_semaphores[self.current_frame]];
+        let wait_stages = [vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT];
+        let signal_semaphores = [self.render_finished_semaphores[self.current_frame]];
+
+        let submit_infos = [vk::SubmitInfo {
+            s_type: vk::StructureType::SUBMIT_INFO,
+            p_next: ptr::null(),
+            wait_semaphore_count: wait_semaphores.len() as u32,
+            p_wait_semaphores: wait_semaphores.as_ptr(),
+            p_wait_dst_stage_mask: wait_stages.as_ptr(),
+            command_buffer_count: 1,
+            p_command_buffers: &self.command_buffers[image_index as usize],
+            signal_semaphore_count: signal_semaphores.len() as u32,
+            p_signal_semaphores: signal_semaphores.as_ptr(),
+        }];
+
+        unsafe {
+            self.device
+                .reset_fences(&wait_fences)
+                .expect("Failed to reset Fence");
+
+            self.device
+                .queue_submit(
+                    self.graphics_queue,
+                    &submit_infos,
+                    self.inflight_fences[self.current_frame],
+                )
+                .expect("Failed to execute queue submit");
+        }
+
+        let swapchains = [self.swapchain];
+        let present_info = vk::PresentInfoKHR {
+            s_type: vk::StructureType::PRESENT_INFO_KHR,
+            p_next: ptr::null(),
+            wait_semaphore_count: 1,
+            p_wait_semaphores: signal_semaphores.as_ptr(),
+            swapchain_count: 1,
+            p_swapchains: swapchains.as_ptr(),
+            p_image_indices: &image_index,
+            p_results: ptr::null_mut(),
+        };
+
+        unsafe {
+            self.swapchain_loader
+                .queue_present(self.present_queue, &present_info)
+                .expect("Failed to execute queue present");
+        }
+
+        self.current_frame = (self.current_frame + 1) % MAX_FRAMES_IN_FLIGHT;
     }
 
-    pub fn main_loop(mut self, event_loop: EventLoop<()>, window: winit::window::Window) -> ! {
+    pub fn main_loop(mut self, event_loop: EventLoop<()>) -> ! {
         event_loop.run(move |event, _, control_flow| match event {
             Event::WindowEvent { event, .. } => match event {
                 WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
@@ -249,7 +288,6 @@ impl VulkanApp {
                         ..
                     } => match (virtual_keycode, state) {
                         (Some(VirtualKeyCode::Escape), ElementState::Pressed) => {
-                            dbg!();
                             *control_flow = ControlFlow::Exit
                         }
                         _ => {}
@@ -258,11 +296,16 @@ impl VulkanApp {
                 _ => {}
             },
             Event::MainEventsCleared => {
-                window.request_redraw();
+                self.window.request_redraw();
             }
             Event::RedrawRequested(_) => {
                 self.draw_frame();
             }
+            Event::LoopDestroyed => unsafe {
+                self.device
+                    .device_wait_idle()
+                    .expect("Failed to wait device idle");
+            },
             _ => (),
         })
     }
@@ -271,6 +314,14 @@ impl VulkanApp {
 impl Drop for VulkanApp {
     fn drop(&mut self) {
         unsafe {
+            for i in 0..MAX_FRAMES_IN_FLIGHT {
+                self.device
+                    .destroy_semaphore(self.image_available_semaphores[i], None);
+                self.device
+                    .destroy_semaphore(self.render_finished_semaphores[i], None);
+                self.device.destroy_fence(self.inflight_fences[i], None);
+            }
+
             self.device.destroy_command_pool(self.command_pool, None);
 
             for &framebuffer in self.swapchain_framebuffers.iter() {
@@ -303,12 +354,6 @@ impl Drop for VulkanApp {
 
 fn main() {
     let event_loop = EventLoop::new();
-    let window = window::init_window(
-        &event_loop,
-        WINDOW_TITLE,
-        constants::WINDOW_WIDTH,
-        constants::WINDOW_HEIGHT,
-    );
-    let vulkan_app = VulkanApp::new(&window);
-    vulkan_app.main_loop(event_loop, window);
+    let vulkan_app = VulkanApp::new(&event_loop);
+    vulkan_app.main_loop(event_loop);
 }
