@@ -2,7 +2,7 @@ pub mod pipeline;
 
 use crate::utility::{constants, debug, platforms, structures::*, tools};
 
-use ash::version::{EntryV1_0, InstanceV1_0};
+use ash::version::{DeviceV1_0, EntryV1_0, InstanceV1_0};
 use ash::vk;
 use std::collections::HashSet;
 use std::ffi::CString;
@@ -438,5 +438,21 @@ fn choose_swapchain_extent(
                 capabilities.max_image_extent.height,
             ),
         }
+    }
+}
+
+pub fn create_shader_module(device: &ash::Device, code: Vec<u8>) -> vk::ShaderModule {
+    let shader_module_create_info = vk::ShaderModuleCreateInfo {
+        s_type: vk::StructureType::SHADER_MODULE_CREATE_INFO,
+        p_next: ptr::null(),
+        flags: vk::ShaderModuleCreateFlags::empty(),
+        code_size: code.len(),
+        p_code: code.as_ptr() as *const u32,
+    };
+
+    unsafe {
+        device
+            .create_shader_module(&shader_module_create_info, None)
+            .expect("Failed to create a Shader Module!")
     }
 }
