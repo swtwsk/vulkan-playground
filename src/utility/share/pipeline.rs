@@ -4,7 +4,7 @@ use crate::utility::{
     tools,
 };
 
-use ash::version::DeviceV1_0;
+use ash::version::{DeviceV1_0, InstanceV1_0};
 use ash::vk;
 use std::ffi::CString;
 use std::path::Path;
@@ -130,8 +130,9 @@ pub fn create_graphics_pipeline(
     device: &ash::Device,
     render_pass: vk::RenderPass,
     swapchain_extent: vk::Extent2D,
-    vertex_binding_description: [vk::VertexInputBindingDescription; 1],
-    vertex_attribute_description: [vk::VertexInputAttributeDescription; 2],
+    ubo_set_layout: vk::DescriptorSetLayout,
+    vertex_binding_description: &[vk::VertexInputBindingDescription],
+    vertex_attribute_description: &[vk::VertexInputAttributeDescription],
 ) -> (vk::Pipeline, vk::PipelineLayout) {
     let vert_shader_code = tools::read_shader_code(Path::new("shaders/vert.spv"));
     let frag_shader_code = tools::read_shader_code(Path::new("shaders/frag.spv"));
@@ -287,12 +288,14 @@ pub fn create_graphics_pipeline(
     // * Dynamic state
     // nothing here
 
+    let set_layouts = [ubo_set_layout];
+
     let pipeline_layout_create_info = vk::PipelineLayoutCreateInfo {
         s_type: vk::StructureType::PIPELINE_LAYOUT_CREATE_INFO,
         p_next: ptr::null(),
         flags: vk::PipelineLayoutCreateFlags::empty(),
-        set_layout_count: 0,
-        p_set_layouts: ptr::null(),
+        set_layout_count: set_layouts.len() as u32,
+        p_set_layouts: set_layouts.as_ptr(),
         push_constant_range_count: 0,
         p_push_constant_ranges: ptr::null(),
     };
@@ -516,4 +519,124 @@ pub fn create_sync_objects(device: &ash::Device, max_frame_in_flight: usize) -> 
     }
 
     sync_objects
+}
+
+pub fn create_vertex_buffer<T>(
+    instance: &ash::Instance,
+    device: &ash::Device,
+    physical_device: vk::PhysicalDevice,
+    command_pool: vk::CommandPool,
+    submit_queue: vk::Queue,
+    data: &[T],
+) -> (vk::Buffer, vk::DeviceMemory) {
+    let buffer_size = std::mem::size_of_val(data) as vk::DeviceSize;
+    let device_memory_properties =
+        unsafe { instance.get_physical_device_memory_properties(physical_device) };
+
+    let (staging_buffer, staging_buffer_memory) = share::create_buffer(
+        device,
+        buffer_size,
+        vk::BufferUsageFlags::TRANSFER_SRC,
+        vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+        &device_memory_properties,
+    );
+
+    unsafe {
+        let data_ptr = device
+            .map_memory(
+                staging_buffer_memory,
+                0,
+                buffer_size,
+                vk::MemoryMapFlags::empty(),
+            )
+            .expect("Failed to Map Memory") as *mut T;
+
+        data_ptr.copy_from_nonoverlapping(data.as_ptr(), data.len());
+
+        device.unmap_memory(staging_buffer_memory);
+    }
+
+    let (vertex_buffer, vertex_buffer_memory) = share::create_buffer(
+        device,
+        buffer_size,
+        vk::BufferUsageFlags::TRANSFER_DST | vk::BufferUsageFlags::VERTEX_BUFFER,
+        vk::MemoryPropertyFlags::DEVICE_LOCAL,
+        &device_memory_properties,
+    );
+
+    share::copy_buffer(
+        device,
+        submit_queue,
+        command_pool,
+        staging_buffer,
+        vertex_buffer,
+        buffer_size,
+    );
+
+    unsafe {
+        device.destroy_buffer(staging_buffer, None);
+        device.free_memory(staging_buffer_memory, None);
+    }
+
+    (vertex_buffer, vertex_buffer_memory)
+}
+
+pub fn create_index_buffer(
+    instance: &ash::Instance,
+    device: &ash::Device,
+    physical_device: vk::PhysicalDevice,
+    command_pool: vk::CommandPool,
+    submit_queue: vk::Queue,
+    data: &[u32],
+) -> (vk::Buffer, vk::DeviceMemory) {
+    let buffer_size = std::mem::size_of_val(data) as vk::DeviceSize;
+    let device_memory_properties =
+        unsafe { instance.get_physical_device_memory_properties(physical_device) };
+
+    let (staging_buffer, staging_buffer_memory) = share::create_buffer(
+        device,
+        buffer_size,
+        vk::BufferUsageFlags::TRANSFER_SRC,
+        vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+        &device_memory_properties,
+    );
+
+    unsafe {
+        let data_ptr = device
+            .map_memory(
+                staging_buffer_memory,
+                0,
+                buffer_size,
+                vk::MemoryMapFlags::empty(),
+            )
+            .expect("Failed to Map Memory") as *mut u32;
+
+        data_ptr.copy_from_nonoverlapping(data.as_ptr(), data.len());
+
+        device.unmap_memory(staging_buffer_memory);
+    }
+
+    let (index_buffer, index_buffer_memory) = share::create_buffer(
+        device,
+        buffer_size,
+        vk::BufferUsageFlags::TRANSFER_DST | vk::BufferUsageFlags::INDEX_BUFFER,
+        vk::MemoryPropertyFlags::DEVICE_LOCAL,
+        &device_memory_properties,
+    );
+
+    share::copy_buffer(
+        device,
+        submit_queue,
+        command_pool,
+        staging_buffer,
+        index_buffer,
+        buffer_size,
+    );
+
+    unsafe {
+        device.destroy_buffer(staging_buffer, None);
+        device.free_memory(staging_buffer_memory, None);
+    }
+
+    (index_buffer, index_buffer_memory)
 }

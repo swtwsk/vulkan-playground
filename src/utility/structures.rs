@@ -1,4 +1,5 @@
 use ash::vk;
+use memoffset::offset_of;
 use std::os::raw::c_char;
 
 pub struct DeviceExtension {
@@ -58,3 +59,56 @@ pub struct SyncObjects {
     pub render_finished_semaphores: Vec<vk::Semaphore>,
     pub inflight_fences: Vec<vk::Fence>,
 }
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct VertexV1 {
+    pub pos: [f32; 2],
+    pub color: [f32; 3],
+}
+impl VertexV1 {
+    pub fn get_binding_descriptions() -> [vk::VertexInputBindingDescription; 1] {
+        [vk::VertexInputBindingDescription {
+            binding: 0,
+            stride: std::mem::size_of::<VertexV1>() as u32,
+            input_rate: vk::VertexInputRate::VERTEX,
+        }]
+    }
+
+    pub fn get_attribute_descriptions() -> [vk::VertexInputAttributeDescription; 2] {
+        [
+            vk::VertexInputAttributeDescription {
+                location: 0,
+                binding: 0,
+                format: vk::Format::R32G32_SFLOAT,
+                offset: offset_of!(VertexV1, pos) as u32,
+            },
+            vk::VertexInputAttributeDescription {
+                location: 1,
+                binding: 0,
+                format: vk::Format::R32G32B32_SFLOAT,
+                offset: offset_of!(VertexV1, color) as u32,
+            },
+        ]
+    }
+}
+
+pub const RECT_VERTICES_DATA: [VertexV1; 4] = [
+    VertexV1 {
+        pos: [-0.5, -0.5],
+        color: [1.0, 0.0, 0.0],
+    },
+    VertexV1 {
+        pos: [0.5, -0.5],
+        color: [0.0, 1.0, 0.0],
+    },
+    VertexV1 {
+        pos: [0.5, 0.5],
+        color: [0.0, 0.0, 1.0],
+    },
+    VertexV1 {
+        pos: [-0.5, 0.5],
+        color: [1.0, 1.0, 1.0],
+    },
+];
+pub const RECT_INDICES_DATA: [u32; 6] = [0, 1, 2, 2, 3, 0];
