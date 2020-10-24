@@ -130,6 +130,8 @@ pub fn create_graphics_pipeline(
     device: &ash::Device,
     render_pass: vk::RenderPass,
     swapchain_extent: vk::Extent2D,
+    vertex_binding_description: [vk::VertexInputBindingDescription; 1],
+    vertex_attribute_description: [vk::VertexInputAttributeDescription; 2],
 ) -> (vk::Pipeline, vk::PipelineLayout) {
     let vert_shader_code = tools::read_shader_code(Path::new("shaders/vert.spv"));
     let frag_shader_code = tools::read_shader_code(Path::new("shaders/frag.spv"));
@@ -169,10 +171,10 @@ pub fn create_graphics_pipeline(
         s_type: vk::StructureType::PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
         p_next: ptr::null(),
         flags: vk::PipelineVertexInputStateCreateFlags::empty(),
-        vertex_attribute_description_count: 0,
-        p_vertex_attribute_descriptions: ptr::null(),
-        vertex_binding_description_count: 0,
-        p_vertex_binding_descriptions: ptr::null(),
+        vertex_attribute_description_count: vertex_attribute_description.len() as u32,
+        p_vertex_attribute_descriptions: vertex_attribute_description.as_ptr(),
+        vertex_binding_description_count: vertex_binding_description.len() as u32,
+        p_vertex_binding_descriptions: vertex_binding_description.as_ptr(),
     };
     // * Input assembly
     let vertex_input_assembly_state_info = vk::PipelineInputAssemblyStateCreateInfo {

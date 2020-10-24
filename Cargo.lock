@@ -486,6 +486,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "memoffset"
+version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "157b4208e3059a8f9e78d559edc658e13df41410cb3ae03979c83130067fdd87"
+dependencies = [
+ "autocfg",
+]
+
+[[package]]
 name = "metal"
 version = "0.17.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -848,6 +857,7 @@ version = "0.1.0"
 dependencies = [
  "ash",
  "cocoa 0.18.5",
+ "memoffset",
  "metal",
  "num",
  "objc",
