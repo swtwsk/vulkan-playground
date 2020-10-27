@@ -48,7 +48,13 @@ impl ProgramProc {
                 }
                 Event::RedrawRequested(_) => {
                     let delta_time = tick_counter.delta_time();
+
+                    let mut void = ();
+                    tick_counter.run_update(&mut void, |_| {});
+
                     vulkan_app.draw_frame(delta_time);
+
+                    print!("FPS: {}\r", tick_counter.fps());
 
                     tick_counter.tick_frame();
                 }
