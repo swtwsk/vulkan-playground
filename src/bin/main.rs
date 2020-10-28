@@ -17,7 +17,7 @@ use std::path::Path;
 use std::ptr;
 
 // Constants
-const WINDOW_TITLE: &'static str = "27.Model Loading";
+const WINDOW_TITLE: &'static str = "28.Mipmapping";
 const MODEL_PATH: &'static str = "assets/viking_room.obj";
 const TEXTURE_PATH: &'static str = "assets/viking_room.png";
 
@@ -56,6 +56,7 @@ struct VulkanAppImpl {
     depth_image_view: vk::ImageView,
     depth_image_memory: vk::DeviceMemory,
 
+    _mip_levels: u32,
     texture_image: vk::Image,
     texture_image_memory: vk::DeviceMemory,
     texture_image_view: vk::ImageView,
@@ -157,7 +158,7 @@ impl VulkanAppImpl {
         );
         let command_pool = share::pipeline::create_command_pool(&logical_device, &queue_family);
         let (depth_image, depth_image_view, depth_image_memory) =
-            VulkanAppImpl::create_depth_resources(
+            share::pipeline::create_depth_resources(
                 &instance,
                 &logical_device,
                 physical_device,
@@ -173,17 +174,19 @@ impl VulkanAppImpl {
             depth_image_view,
             swapchain_stuff.swapchain_extent,
         );
-        let (vertices, indices) = VulkanAppImpl::load_model(&Path::new(MODEL_PATH));
-        let (texture_image, texture_image_memory) = share::pipeline::create_texture_image(
-            &logical_device,
-            command_pool,
-            graphics_queue,
-            &physical_device_memory_properties,
-            &Path::new(TEXTURE_PATH),
-        );
+        let (vertices, indices) = share::load_model(&Path::new(MODEL_PATH));
+        VulkanAppImpl::check_mipmap_support(&instance, physical_device, vk::Format::R8G8B8A8_UNORM);
+        let (texture_image, texture_image_memory, mip_levels) =
+            share::pipeline::create_texture_image(
+                &logical_device,
+                command_pool,
+                graphics_queue,
+                &physical_device_memory_properties,
+                &Path::new(TEXTURE_PATH),
+            );
         let texture_image_view =
-            share::pipeline::create_texture_image_view(&logical_device, texture_image);
-        let texture_sampler = share::pipeline::create_texture_sampler(&logical_device);
+            share::pipeline::create_texture_image_view(&logical_device, texture_image, mip_levels);
+        let texture_sampler = share::pipeline::create_texture_sampler(&logical_device, mip_levels);
         let (vertex_buffer, vertex_buffer_memory) = share::pipeline::create_vertex_buffer(
             &instance,
             &logical_device,
@@ -269,6 +272,7 @@ impl VulkanAppImpl {
             depth_image_view,
             depth_image_memory,
 
+            _mip_levels: mip_levels,
             texture_image,
             texture_image_memory,
             texture_image_view,
@@ -319,72 +323,22 @@ impl VulkanAppImpl {
         }
     }
 
-    fn load_model(model_path: &Path) -> (Vec<VertexV3>, Vec<u32>) {
-        let (models, _materials) =
-            tobj::load_obj(model_path, false).expect("Failed to load model object!");
-
-        let mut vertices = vec![];
-        let mut indices = vec![];
-
-        for m in models.iter() {
-            let mesh = &m.mesh;
-
-            if mesh.texcoords.len() == 0 {
-                panic!("Missing texture coordinate for the model")
-            }
-
-            let total_vertices_count = mesh.positions.len() / 3;
-            for i in 0..total_vertices_count {
-                let vertex = VertexV3 {
-                    pos: [
-                        mesh.positions[i * 3],
-                        mesh.positions[i * 3 + 1],
-                        mesh.positions[i * 3 + 2],
-                        1.0,
-                    ],
-                    color: [1.0, 1.0, 1.0, 1.0],
-                    tex_coord: [mesh.texcoords[i * 2], mesh.texcoords[i * 2 + 1]],
-                };
-                vertices.push(vertex);
-            }
-
-            indices = mesh.indices.clone();
-        }
-
-        (vertices, indices)
-    }
-
-    fn create_depth_resources(
+    fn check_mipmap_support(
         instance: &ash::Instance,
-        device: &ash::Device,
         physical_device: vk::PhysicalDevice,
-        _command_pool: vk::CommandPool,
-        _submit_queue: vk::Queue,
-        swapchain_extent: vk::Extent2D,
-        device_memory_properties: &vk::PhysicalDeviceMemoryProperties,
-    ) -> (vk::Image, vk::ImageView, vk::DeviceMemory) {
-        let depth_format = share::pipeline::find_depth_format(instance, physical_device);
-        let (depth_image, depth_image_memory) = share::pipeline::create_image(
-            device,
-            swapchain_extent.width,
-            swapchain_extent.height,
-            1,
-            vk::SampleCountFlags::TYPE_1,
-            depth_format,
-            vk::ImageTiling::OPTIMAL,
-            vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT,
-            vk::MemoryPropertyFlags::DEVICE_LOCAL,
-            device_memory_properties,
-        );
-        let depth_image_view = share::pipeline::create_image_view(
-            device,
-            depth_image,
-            depth_format,
-            vk::ImageAspectFlags::DEPTH,
-            1,
-        );
+        image_format: vk::Format,
+    ) {
+        let format_properties = unsafe {
+            instance.get_physical_device_format_properties(physical_device, image_format)
+        };
 
-        (depth_image, depth_image_view, depth_image_memory)
+        let is_sample_image_filter_linear_support = format_properties
+            .optimal_tiling_features
+            .contains(vk::FormatFeatureFlags::SAMPLED_IMAGE_FILTER_LINEAR);
+
+        if !is_sample_image_filter_linear_support {
+            panic!("Texture Image does not support linear blitting!")
+        }
     }
 
     fn update_uniform_buffer(&mut self, current_image: usize, delta_time: f32) {
@@ -559,7 +513,7 @@ impl VulkanApp for VulkanAppImpl {
         self.graphics_pipeline = graphics_pipeline;
         self.pipeline_layout = pipeline_layout;
 
-        let depth_resources = VulkanAppImpl::create_depth_resources(
+        let depth_resources = share::pipeline::create_depth_resources(
             &self.instance,
             &self.device,
             self.physical_device,

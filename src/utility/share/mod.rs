@@ -7,6 +7,7 @@ use ash::vk;
 use std::collections::HashSet;
 use std::ffi::CString;
 use std::os::raw::{c_char, c_void};
+use std::path::Path;
 use std::ptr;
 
 pub fn create_instance(
@@ -627,4 +628,39 @@ pub fn end_single_time_command(
 
         device.free_command_buffers(command_pool, &buffers_to_submit);
     }
+}
+
+pub fn load_model(model_path: &Path) -> (Vec<VertexV3>, Vec<u32>) {
+    let (models, _materials) =
+        tobj::load_obj(model_path, false).expect("Failed to load model object!");
+
+    let mut vertices = vec![];
+    let mut indices = vec![];
+
+    for m in models.iter() {
+        let mesh = &m.mesh;
+
+        if mesh.texcoords.len() == 0 {
+            panic!("Missing texture coordinate for the model")
+        }
+
+        let total_vertices_count = mesh.positions.len() / 3;
+        for i in 0..total_vertices_count {
+            let vertex = VertexV3 {
+                pos: [
+                    mesh.positions[i * 3],
+                    mesh.positions[i * 3 + 1],
+                    mesh.positions[i * 3 + 2],
+                    1.0,
+                ],
+                color: [1.0, 1.0, 1.0, 1.0],
+                tex_coord: [mesh.texcoords[i * 2], mesh.texcoords[i * 2 + 1]],
+            };
+            vertices.push(vertex);
+        }
+
+        indices = mesh.indices.clone();
+    }
+
+    (vertices, indices)
 }
