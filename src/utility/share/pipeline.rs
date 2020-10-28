@@ -1,6 +1,6 @@
 use crate::utility::{
     share,
-    structures::{QueueFamilyIndices, SyncObjects},
+    structures::{QueueFamilyIndices, SyncObjects, UniformBufferObject},
     tools,
 };
 
@@ -29,7 +29,7 @@ pub fn create_image_views(
         .collect()
 }
 
-fn create_image_view(
+pub fn create_image_view(
     device: &ash::Device,
     image: vk::Image,
     format: vk::Format,
@@ -216,7 +216,7 @@ pub fn create_graphics_pipeline(
         flags: vk::PipelineRasterizationStateCreateFlags::empty(),
         depth_clamp_enable: vk::FALSE,
         cull_mode: vk::CullModeFlags::BACK,
-        front_face: vk::FrontFace::CLOCKWISE,
+        front_face: vk::FrontFace::COUNTER_CLOCKWISE,
         line_width: 1.0,
         polygon_mode: vk::PolygonMode::FILL,
         rasterizer_discard_enable: vk::FALSE,
@@ -639,4 +639,176 @@ pub fn create_index_buffer(
     }
 
     (index_buffer, index_buffer_memory)
+}
+
+pub fn create_descriptor_set_layout(device: &ash::Device) -> vk::DescriptorSetLayout {
+    let ubo_layout_bindings = [
+        vk::DescriptorSetLayoutBinding {
+            // transform uniform
+            binding: 0,
+            descriptor_type: vk::DescriptorType::UNIFORM_BUFFER,
+            descriptor_count: 1,
+            stage_flags: vk::ShaderStageFlags::VERTEX,
+            p_immutable_samplers: ptr::null(),
+        },
+        vk::DescriptorSetLayoutBinding {
+            // sampler uniform
+            binding: 1,
+            descriptor_type: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+            descriptor_count: 1,
+            stage_flags: vk::ShaderStageFlags::FRAGMENT,
+            p_immutable_samplers: ptr::null(),
+        },
+    ];
+
+    let ubo_layout_create_info = vk::DescriptorSetLayoutCreateInfo {
+        s_type: vk::StructureType::DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+        p_next: ptr::null(),
+        flags: vk::DescriptorSetLayoutCreateFlags::empty(),
+        binding_count: ubo_layout_bindings.len() as u32,
+        p_bindings: ubo_layout_bindings.as_ptr(),
+    };
+
+    unsafe {
+        device
+            .create_descriptor_set_layout(&ubo_layout_create_info, None)
+            .expect("Failed to create Descriptor Set Layout")
+    }
+}
+
+pub fn create_uniform_buffers(
+    device: &ash::Device,
+    device_memory_properties: &vk::PhysicalDeviceMemoryProperties,
+    swapchain_image_count: usize,
+) -> (Vec<vk::Buffer>, Vec<vk::DeviceMemory>) {
+    let buffer_size = std::mem::size_of::<UniformBufferObject>();
+
+    let mut uniform_buffers = vec![];
+    let mut uniform_buffers_memory = vec![];
+
+    for _ in 0..swapchain_image_count {
+        let (uniform_buffer, uniform_buffer_memory) = share::create_buffer(
+            device,
+            buffer_size as u64,
+            vk::BufferUsageFlags::UNIFORM_BUFFER,
+            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+            device_memory_properties,
+        );
+
+        uniform_buffers.push(uniform_buffer);
+        uniform_buffers_memory.push(uniform_buffer_memory);
+    }
+
+    (uniform_buffers, uniform_buffers_memory)
+}
+
+pub fn create_descriptor_pool(
+    device: &ash::Device,
+    swapchain_images_size: usize,
+) -> vk::DescriptorPool {
+    let pool_sizes = [
+        vk::DescriptorPoolSize {
+            // transform descriptor pool
+            ty: vk::DescriptorType::UNIFORM_BUFFER,
+            descriptor_count: swapchain_images_size as u32,
+        },
+        vk::DescriptorPoolSize {
+            // sampler descriptor pool
+            ty: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+            descriptor_count: swapchain_images_size as u32,
+        },
+    ];
+
+    let descriptor_pool_create_info = vk::DescriptorPoolCreateInfo {
+        s_type: vk::StructureType::DESCRIPTOR_POOL_CREATE_INFO,
+        p_next: ptr::null(),
+        flags: vk::DescriptorPoolCreateFlags::empty(),
+        max_sets: swapchain_images_size as u32,
+        pool_size_count: pool_sizes.len() as u32,
+        p_pool_sizes: pool_sizes.as_ptr(),
+    };
+
+    unsafe {
+        device
+            .create_descriptor_pool(&descriptor_pool_create_info, None)
+            .expect("Failed to create Descriptor Pool")
+    }
+}
+
+pub fn create_descriptor_sets(
+    device: &ash::Device,
+    descriptor_pool: vk::DescriptorPool,
+    descriptor_set_layout: vk::DescriptorSetLayout,
+    uniform_buffers: &Vec<vk::Buffer>,
+    texture_image_view: vk::ImageView,
+    texture_sampler: vk::Sampler,
+    swapchain_images_size: usize,
+) -> Vec<vk::DescriptorSet> {
+    let mut layouts = vec![];
+
+    for _ in 0..swapchain_images_size {
+        layouts.push(descriptor_set_layout);
+    }
+
+    let descriptor_set_allocate_info = vk::DescriptorSetAllocateInfo {
+        s_type: vk::StructureType::DESCRIPTOR_SET_ALLOCATE_INFO,
+        p_next: ptr::null(),
+        descriptor_pool,
+        descriptor_set_count: swapchain_images_size as u32,
+        p_set_layouts: layouts.as_ptr(),
+    };
+
+    let descriptor_sets = unsafe {
+        device
+            .allocate_descriptor_sets(&descriptor_set_allocate_info)
+            .expect("Failed to allocate descriptor sets")
+    };
+
+    for (i, &descriptor_set) in descriptor_sets.iter().enumerate() {
+        let descriptor_buffer_info = [vk::DescriptorBufferInfo {
+            buffer: uniform_buffers[i],
+            offset: 0,
+            range: std::mem::size_of::<UniformBufferObject>() as u64,
+        }];
+
+        let descriptor_image_infos = [vk::DescriptorImageInfo {
+            sampler: texture_sampler,
+            image_view: texture_image_view,
+            image_layout: vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+        }];
+
+        let descriptor_ctr =
+            |dst_binding, descriptor_type, p_image_info, p_buffer_info| vk::WriteDescriptorSet {
+                s_type: vk::StructureType::WRITE_DESCRIPTOR_SET,
+                p_next: ptr::null(),
+                dst_set: descriptor_set,
+                dst_binding,
+                dst_array_element: 0,
+                descriptor_count: 1,
+                descriptor_type,
+                p_image_info,
+                p_buffer_info,
+                p_texel_buffer_view: ptr::null(),
+            };
+        let descriptor_write_sets = [
+            descriptor_ctr(
+                0,
+                vk::DescriptorType::UNIFORM_BUFFER,
+                ptr::null(),
+                descriptor_buffer_info.as_ptr(),
+            ),
+            descriptor_ctr(
+                1,
+                vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+                descriptor_image_infos.as_ptr(),
+                ptr::null(),
+            ),
+        ];
+
+        unsafe {
+            device.update_descriptor_sets(&descriptor_write_sets, &[]);
+        }
+    }
+
+    descriptor_sets
 }

@@ -131,13 +131,14 @@ fn is_physical_device_suitable(
     surface_stuff: &SurfaceStuff,
     required_device_extensions: &DeviceExtension,
 ) -> bool {
-    let _device_features = unsafe { instance.get_physical_device_features(physical_device) };
+    let device_features = unsafe { instance.get_physical_device_features(physical_device) };
 
     let indices = find_queue_family(instance, physical_device, surface_stuff);
 
     let is_queue_family_supported = indices.is_complete();
     let is_device_extensions_supported =
         check_device_extension_support(instance, physical_device, required_device_extensions);
+    let is_anisotropy_supported = device_features.sampler_anisotropy == 1;
     let is_swapchain_supported = if is_device_extensions_supported {
         let swapchain_support = query_swapchain_support(physical_device, surface_stuff);
         !swapchain_support.formats.is_empty() && !swapchain_support.present_modes.is_empty()
@@ -145,7 +146,10 @@ fn is_physical_device_suitable(
         false
     };
 
-    return is_queue_family_supported && is_device_extensions_supported && is_swapchain_supported;
+    return is_queue_family_supported
+        && is_device_extensions_supported
+        && is_swapchain_supported
+        && is_anisotropy_supported;
 }
 
 pub fn create_logical_device(
@@ -176,6 +180,7 @@ pub fn create_logical_device(
     }
 
     let physical_device_features = vk::PhysicalDeviceFeatures {
+        sampler_anisotropy: vk::TRUE,
         ..Default::default() // no features
     };
 
@@ -514,7 +519,7 @@ pub fn create_buffer(
     (buffer, buffer_memory)
 }
 
-fn find_memory_type(
+pub fn find_memory_type(
     type_filter: u32,
     required_properties: vk::MemoryPropertyFlags,
     mem_properties: &vk::PhysicalDeviceMemoryProperties,
@@ -552,7 +557,7 @@ pub fn copy_buffer(
     end_single_time_command(device, command_pool, submit_queue, command_buffer);
 }
 
-fn begin_single_time_command(
+pub fn begin_single_time_command(
     device: &ash::Device,
     command_pool: vk::CommandPool,
 ) -> vk::CommandBuffer {
@@ -586,7 +591,7 @@ fn begin_single_time_command(
     command_buffer
 }
 
-fn end_single_time_command(
+pub fn end_single_time_command(
     device: &ash::Device,
     command_pool: vk::CommandPool,
     submit_queue: vk::Queue,
