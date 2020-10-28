@@ -667,11 +667,32 @@ impl VulkanApp for VulkanAppImpl {
         self.graphics_pipeline = graphics_pipeline;
         self.pipeline_layout = pipeline_layout;
 
+        let physical_device_memory_properties = unsafe {
+            self.instance
+                .get_physical_device_memory_properties(self.physical_device)
+        };
+
         self.swapchain_framebuffers = share::pipeline::create_framebuffers(
             &self.device,
             self.render_pass,
             &self.swapchain_imageviews,
             self.swapchain_extent,
+        );
+        let (uniform_buffers, uniform_buffers_memory) = VulkanAppImpl::create_uniform_buffers(
+            &self.device,
+            &physical_device_memory_properties,
+            self.swapchain_images.len(),
+        );
+        self.uniform_buffers = uniform_buffers;
+        self.uniform_buffers_memory = uniform_buffers_memory;
+        self.descriptor_pool =
+            VulkanAppImpl::create_descriptor_pool(&self.device, self.swapchain_images.len());
+        self.descriptor_sets = VulkanAppImpl::create_descriptor_sets(
+            &self.device,
+            self.descriptor_pool,
+            self.ubo_layout,
+            &self.uniform_buffers,
+            self.swapchain_images.len(),
         );
         self.command_buffers = VulkanAppImpl::create_command_buffers(
             &self.device,
@@ -691,6 +712,15 @@ impl VulkanApp for VulkanAppImpl {
         unsafe {
             self.device
                 .free_command_buffers(self.command_pool, &self.command_buffers);
+
+            for i in 0..self.uniform_buffers.len() {
+                self.device.destroy_buffer(self.uniform_buffers[i], None);
+                self.device
+                    .free_memory(self.uniform_buffers_memory[i], None);
+            }
+            self.device
+                .destroy_descriptor_pool(self.descriptor_pool, None);
+
             for &framebuffer in self.swapchain_framebuffers.iter() {
                 self.device.destroy_framebuffer(framebuffer, None);
             }
@@ -735,15 +765,6 @@ impl Drop for VulkanAppImpl {
             }
 
             self.cleanup_swapchain();
-
-            self.device
-                .destroy_descriptor_pool(self.descriptor_pool, None);
-
-            for i in 0..self.uniform_buffers.len() {
-                self.device.destroy_buffer(self.uniform_buffers[i], None);
-                self.device
-                    .free_memory(self.uniform_buffers_memory[i], None);
-            }
 
             self.device.destroy_buffer(self.index_buffer, None);
             self.device.free_memory(self.index_buffer_memory, None);
