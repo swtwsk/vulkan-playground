@@ -104,12 +104,12 @@ impl VertexV1 {
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
-pub struct VertexV2 {
-    pub pos: [f32; 2],
+pub struct VertexV3 {
+    pub pos: [f32; 3],
     pub color: [f32; 3],
     pub tex_coord: [f32; 2],
 }
-impl VertexV2 {
+impl VertexV3 {
     pub fn get_binding_descriptions() -> [vk::VertexInputBindingDescription; 1] {
         [vk::VertexInputBindingDescription {
             binding: 0,
@@ -123,7 +123,7 @@ impl VertexV2 {
             vk::VertexInputAttributeDescription {
                 binding: 0,
                 location: 0,
-                format: vk::Format::R32G32_SFLOAT,
+                format: vk::Format::R32G32B32_SFLOAT,
                 offset: offset_of!(Self, pos) as u32,
             },
             vk::VertexInputAttributeDescription {
@@ -142,22 +142,46 @@ impl VertexV2 {
     }
 }
 
-pub const RECT_VERTICES_DATA: [VertexV1; 4] = [
-    VertexV1 {
-        pos: [-0.5, -0.5],
+pub const RECT_VERTICES_DATA: [VertexV3; 8] = [
+    VertexV3 {
+        pos: [-0.5, -0.5, 0.0],
         color: [1.0, 0.0, 0.0],
+        tex_coord: [0.0, 0.0],
     },
-    VertexV1 {
-        pos: [0.5, -0.5],
+    VertexV3 {
+        pos: [0.5, -0.5, 0.0],
         color: [0.0, 1.0, 0.0],
+        tex_coord: [1.0, 0.0],
     },
-    VertexV1 {
-        pos: [0.5, 0.5],
+    VertexV3 {
+        pos: [0.5, 0.5, 0.0],
         color: [0.0, 0.0, 1.0],
+        tex_coord: [1.0, 1.0],
     },
-    VertexV1 {
-        pos: [-0.5, 0.5],
+    VertexV3 {
+        pos: [-0.5, 0.5, 0.0],
         color: [1.0, 1.0, 1.0],
+        tex_coord: [0.0, 1.0],
+    },
+    VertexV3 {
+        pos: [-0.5, -0.5, -0.5],
+        color: [1.0, 0.0, 0.0],
+        tex_coord: [0.0, 0.0],
+    },
+    VertexV3 {
+        pos: [0.5, -0.5, -0.5],
+        color: [0.0, 1.0, 0.0],
+        tex_coord: [1.0, 0.0],
+    },
+    VertexV3 {
+        pos: [0.5, 0.5, -0.5],
+        color: [0.0, 0.0, 1.0],
+        tex_coord: [1.0, 1.0],
+    },
+    VertexV3 {
+        pos: [-0.5, 0.5, -0.5],
+        color: [1.0, 1.0, 1.0],
+        tex_coord: [0.0, 1.0],
     },
 ];
-pub const RECT_INDICES_DATA: [u32; 6] = [0, 1, 2, 2, 3, 0];
+pub const RECT_INDICES_DATA: [u32; 12] = [0, 1, 2, 2, 3, 0, 4, 5, 6, 6, 7, 4];
