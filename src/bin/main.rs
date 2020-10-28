@@ -4,10 +4,7 @@ use rust_game::utility::{
     debug,
     program_proc::ProgramProc,
     share,
-    structures::{
-        QueueFamilyIndices, SurfaceStuff, UniformBufferObject, VertexV3, RECT_INDICES_DATA,
-        RECT_VERTICES_DATA,
-    },
+    structures::{QueueFamilyIndices, SurfaceStuff, UniformBufferObject, VertexV3},
     traits::VulkanApp,
     window,
 };
@@ -20,8 +17,9 @@ use std::path::Path;
 use std::ptr;
 
 // Constants
-const WINDOW_TITLE: &'static str = "26.Depth Buffering";
-const TEXTURE_PATH: &'static str = "assets/texture.jpg";
+const WINDOW_TITLE: &'static str = "27.Model Loading";
+const MODEL_PATH: &'static str = "assets/viking_room.obj";
+const TEXTURE_PATH: &'static str = "assets/viking_room.png";
 
 struct VulkanAppImpl {
     window: winit::window::Window,
@@ -62,6 +60,9 @@ struct VulkanAppImpl {
     texture_image_memory: vk::DeviceMemory,
     texture_image_view: vk::ImageView,
     texture_sampler: vk::Sampler,
+
+    _vertices: Vec<VertexV3>,
+    indices: Vec<u32>,
 
     vertex_buffer: vk::Buffer,
     vertex_buffer_memory: vk::DeviceMemory,
@@ -172,6 +173,7 @@ impl VulkanAppImpl {
             depth_image_view,
             swapchain_stuff.swapchain_extent,
         );
+        let (vertices, indices) = VulkanAppImpl::load_model(&Path::new(MODEL_PATH));
         let (texture_image, texture_image_memory) = share::pipeline::create_texture_image(
             &logical_device,
             command_pool,
@@ -188,7 +190,7 @@ impl VulkanAppImpl {
             physical_device,
             command_pool,
             graphics_queue,
-            &RECT_VERTICES_DATA,
+            &vertices,
         );
         let (index_buffer, index_buffer_memory) = share::pipeline::create_index_buffer(
             &instance,
@@ -196,7 +198,7 @@ impl VulkanAppImpl {
             physical_device,
             command_pool,
             graphics_queue,
-            &RECT_INDICES_DATA,
+            &indices,
         );
         let (uniform_buffers, uniform_buffers_memory) = share::pipeline::create_uniform_buffers(
             &logical_device,
@@ -227,7 +229,7 @@ impl VulkanAppImpl {
             index_buffer,
             pipeline_layout,
             &descriptor_sets,
-            &RECT_INDICES_DATA,
+            indices.len() as u32,
         );
         let sync_objects =
             share::pipeline::create_sync_objects(&logical_device, MAX_FRAMES_IN_FLIGHT);
@@ -272,6 +274,9 @@ impl VulkanAppImpl {
             texture_image_view,
             texture_sampler,
 
+            _vertices: vertices,
+            indices,
+
             vertex_buffer,
             vertex_buffer_memory,
             index_buffer,
@@ -312,6 +317,41 @@ impl VulkanAppImpl {
 
             is_framebuffer_resized: false,
         }
+    }
+
+    fn load_model(model_path: &Path) -> (Vec<VertexV3>, Vec<u32>) {
+        let (models, _materials) =
+            tobj::load_obj(model_path, false).expect("Failed to load model object!");
+
+        let mut vertices = vec![];
+        let mut indices = vec![];
+
+        for m in models.iter() {
+            let mesh = &m.mesh;
+
+            if mesh.texcoords.len() == 0 {
+                panic!("Missing texture coordinate for the model")
+            }
+
+            let total_vertices_count = mesh.positions.len() / 3;
+            for i in 0..total_vertices_count {
+                let vertex = VertexV3 {
+                    pos: [
+                        mesh.positions[i * 3],
+                        mesh.positions[i * 3 + 1],
+                        mesh.positions[i * 3 + 2],
+                        1.0,
+                    ],
+                    color: [1.0, 1.0, 1.0, 1.0],
+                    tex_coord: [mesh.texcoords[i * 2], mesh.texcoords[i * 2 + 1]],
+                };
+                vertices.push(vertex);
+            }
+
+            indices = mesh.indices.clone();
+        }
+
+        (vertices, indices)
     }
 
     fn create_depth_resources(
@@ -573,7 +613,7 @@ impl VulkanApp for VulkanAppImpl {
             self.index_buffer,
             self.pipeline_layout,
             &self.descriptor_sets,
-            &RECT_INDICES_DATA,
+            self.indices.len() as u32,
         );
     }
 

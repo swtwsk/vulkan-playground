@@ -796,7 +796,7 @@ pub fn create_command_buffers(
     index_buffer: vk::Buffer,
     pipeline_layout: vk::PipelineLayout,
     descriptor_sets: &Vec<vk::DescriptorSet>,
-    rect_indices: &[u32],
+    indices_len: u32,
 ) -> Vec<vk::CommandBuffer> {
     let command_buffer_allocate_info = vk::CommandBufferAllocateInfo {
         s_type: vk::StructureType::COMMAND_BUFFER_ALLOCATE_INFO,
@@ -880,7 +880,7 @@ pub fn create_command_buffers(
                 &[],
             );
 
-            device.cmd_draw_indexed(command_buffer, rect_indices.len() as u32, 1, 0, 0, 0);
+            device.cmd_draw_indexed(command_buffer, indices_len, 1, 0, 0, 0);
 
             device.cmd_end_render_pass(command_buffer);
 
