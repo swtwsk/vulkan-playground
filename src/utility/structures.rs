@@ -1,5 +1,4 @@
 use ash::vk;
-use cgmath::Matrix4;
 use memoffset::offset_of;
 use std::os::raw::c_char;
 
@@ -64,9 +63,7 @@ pub struct SyncObjects {
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct UniformBufferObject {
-    pub model: Matrix4<f32>,
-    pub view: Matrix4<f32>,
-    pub proj: Matrix4<f32>,
+    pub u_time: f32,
 }
 
 #[repr(C)]
@@ -97,6 +94,46 @@ impl VertexV1 {
                 binding: 0,
                 format: vk::Format::R32G32B32_SFLOAT,
                 offset: offset_of!(Self, color) as u32,
+            },
+        ]
+    }
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct VertexV2 {
+    pub pos: [f32; 2],
+    pub color: [f32; 3],
+    pub tex_coord: [f32; 2],
+}
+impl VertexV2 {
+    pub fn get_binding_descriptions() -> [vk::VertexInputBindingDescription; 1] {
+        [vk::VertexInputBindingDescription {
+            binding: 0,
+            stride: ::std::mem::size_of::<Self>() as u32,
+            input_rate: vk::VertexInputRate::VERTEX,
+        }]
+    }
+
+    pub fn get_attribute_descriptions() -> [vk::VertexInputAttributeDescription; 3] {
+        [
+            vk::VertexInputAttributeDescription {
+                binding: 0,
+                location: 0,
+                format: vk::Format::R32G32_SFLOAT,
+                offset: offset_of!(Self, pos) as u32,
+            },
+            vk::VertexInputAttributeDescription {
+                binding: 0,
+                location: 1,
+                format: vk::Format::R32G32B32_SFLOAT,
+                offset: offset_of!(Self, color) as u32,
+            },
+            vk::VertexInputAttributeDescription {
+                binding: 0,
+                location: 2,
+                format: vk::Format::R32G32_SFLOAT,
+                offset: offset_of!(Self, tex_coord) as u32,
             },
         ]
     }
@@ -141,3 +178,27 @@ impl VertexV3 {
         ]
     }
 }
+
+pub const RECT_VERTICES_DATA: [VertexV2; 4] = [
+    VertexV2 {
+        pos: [-0.5, -0.5],
+        color: [1.0, 0.0, 0.0],
+        tex_coord: [0.0, 0.0],
+    },
+    VertexV2 {
+        pos: [0.5, -0.5],
+        color: [0.0, 1.0, 0.0],
+        tex_coord: [1.0, 0.0],
+    },
+    VertexV2 {
+        pos: [0.5, 0.5],
+        color: [0.0, 0.0, 1.0],
+        tex_coord: [1.0, 1.0],
+    },
+    VertexV2 {
+        pos: [-0.5, 0.5],
+        color: [1.0, 1.0, 1.0],
+        tex_coord: [0.0, 1.0],
+    },
+];
+pub const RECT_INDICES_DATA: [u32; 6] = [0, 1, 2, 2, 3, 0];

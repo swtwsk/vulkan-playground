@@ -749,7 +749,7 @@ pub fn create_graphics_pipeline(
         flags: vk::PipelineRasterizationStateCreateFlags::empty(),
         depth_clamp_enable: vk::FALSE,
         cull_mode: vk::CullModeFlags::BACK,
-        front_face: vk::FrontFace::COUNTER_CLOCKWISE,
+        front_face: vk::FrontFace::CLOCKWISE,
         line_width: 1.0,
         polygon_mode: vk::PolygonMode::FILL,
         rasterizer_discard_enable: vk::FALSE,
@@ -1211,7 +1211,7 @@ pub fn create_descriptor_set_layout(device: &ash::Device) -> vk::DescriptorSetLa
             binding: 0,
             descriptor_type: vk::DescriptorType::UNIFORM_BUFFER,
             descriptor_count: 1,
-            stage_flags: vk::ShaderStageFlags::VERTEX,
+            stage_flags: vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
             p_immutable_samplers: ptr::null(),
         },
         vk::DescriptorSetLayoutBinding {
@@ -1303,8 +1303,7 @@ pub fn create_descriptor_sets(
     descriptor_pool: vk::DescriptorPool,
     descriptor_set_layout: vk::DescriptorSetLayout,
     uniform_buffers: &Vec<vk::Buffer>,
-    texture_image_view: vk::ImageView,
-    texture_sampler: vk::Sampler,
+    texture_details: Option<(vk::ImageView, vk::Sampler)>, // texture_image_view, texture_sampler
     swapchain_images_size: usize,
 ) -> Vec<vk::DescriptorSet> {
     let mut layouts = vec![];
@@ -1334,11 +1333,13 @@ pub fn create_descriptor_sets(
             range: std::mem::size_of::<UniformBufferObject>() as u64,
         }];
 
-        let descriptor_image_infos = [vk::DescriptorImageInfo {
-            sampler: texture_sampler,
-            image_view: texture_image_view,
-            image_layout: vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
-        }];
+        let descriptor_image_infos = texture_details.map(|(image_view, sampler)| {
+            [vk::DescriptorImageInfo {
+                sampler,
+                image_view,
+                image_layout: vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+            }]
+        });
 
         let descriptor_ctr =
             |dst_binding, descriptor_type, p_image_info, p_buffer_info| vk::WriteDescriptorSet {
@@ -1353,23 +1354,37 @@ pub fn create_descriptor_sets(
                 p_buffer_info,
                 p_texel_buffer_view: ptr::null(),
             };
-        let descriptor_write_sets = [
-            descriptor_ctr(
+
+        if let Some(descriptor_image_info) = descriptor_image_infos {
+            let descriptor_write_sets = [
+                descriptor_ctr(
+                    0,
+                    vk::DescriptorType::UNIFORM_BUFFER,
+                    ptr::null(),
+                    descriptor_buffer_info.as_ptr(),
+                ),
+                descriptor_ctr(
+                    1,
+                    vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+                    descriptor_image_info.as_ptr(),
+                    ptr::null(),
+                ),
+            ];
+
+            unsafe {
+                device.update_descriptor_sets(&descriptor_write_sets, &[]);
+            }
+        } else {
+            let descriptor_write_sets = [descriptor_ctr(
                 0,
                 vk::DescriptorType::UNIFORM_BUFFER,
                 ptr::null(),
                 descriptor_buffer_info.as_ptr(),
-            ),
-            descriptor_ctr(
-                1,
-                vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
-                descriptor_image_infos.as_ptr(),
-                ptr::null(),
-            ),
-        ];
+            )];
 
-        unsafe {
-            device.update_descriptor_sets(&descriptor_write_sets, &[]);
+            unsafe {
+                device.update_descriptor_sets(&descriptor_write_sets, &[]);
+            }
         }
     }
 

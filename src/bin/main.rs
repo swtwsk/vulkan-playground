@@ -4,22 +4,20 @@ use rust_game::utility::{
     debug,
     program_proc::ProgramProc,
     share,
-    structures::{QueueFamilyIndices, SurfaceStuff, UniformBufferObject, VertexV3},
+    structures::{
+        QueueFamilyIndices, SurfaceStuff, UniformBufferObject, VertexV2, RECT_INDICES_DATA,
+        RECT_VERTICES_DATA,
+    },
     traits::VulkanApp,
     window,
 };
 
 use ash::version::{DeviceV1_0, InstanceV1_0};
 use ash::vk; // Vulkan API
-use cgmath::{Deg, Matrix4, Point3, Vector3};
-
-use std::path::Path;
 use std::ptr;
 
 // Constants
-const WINDOW_TITLE: &'static str = "28.Mipmapping";
-const MODEL_PATH: &'static str = "assets/viking_room.obj";
-const TEXTURE_PATH: &'static str = "assets/viking_room.png";
+const WINDOW_TITLE: &'static str = "Rectangle Test";
 
 struct VulkanAppImpl {
     window: winit::window::Window,
@@ -56,13 +54,12 @@ struct VulkanAppImpl {
     depth_image_view: vk::ImageView,
     depth_image_memory: vk::DeviceMemory,
 
-    _mip_levels: u32,
-    texture_image: vk::Image,
-    texture_image_memory: vk::DeviceMemory,
-    texture_image_view: vk::ImageView,
-    texture_sampler: vk::Sampler,
-
-    _vertices: Vec<VertexV3>,
+    // _mip_levels: u32,
+    // texture_image: vk::Image,
+    // texture_image_memory: vk::DeviceMemory,
+    // texture_image_view: vk::ImageView,
+    // texture_sampler: vk::Sampler,
+    _vertices: Vec<VertexV2>,
     indices: Vec<u32>,
 
     vertex_buffer: vk::Buffer,
@@ -153,8 +150,8 @@ impl VulkanAppImpl {
             render_pass,
             swapchain_stuff.swapchain_extent,
             ubo_layout,
-            &VertexV3::get_binding_descriptions(),
-            &VertexV3::get_attribute_descriptions(),
+            &VertexV2::get_binding_descriptions(),
+            &VertexV2::get_attribute_descriptions(),
         );
         let command_pool = share::pipeline::create_command_pool(&logical_device, &queue_family);
         let (depth_image, depth_image_view, depth_image_memory) =
@@ -174,26 +171,14 @@ impl VulkanAppImpl {
             depth_image_view,
             swapchain_stuff.swapchain_extent,
         );
-        let (vertices, indices) = share::load_model(&Path::new(MODEL_PATH));
         VulkanAppImpl::check_mipmap_support(&instance, physical_device, vk::Format::R8G8B8A8_UNORM);
-        let (texture_image, texture_image_memory, mip_levels) =
-            share::pipeline::create_texture_image(
-                &logical_device,
-                command_pool,
-                graphics_queue,
-                &physical_device_memory_properties,
-                &Path::new(TEXTURE_PATH),
-            );
-        let texture_image_view =
-            share::pipeline::create_texture_image_view(&logical_device, texture_image, mip_levels);
-        let texture_sampler = share::pipeline::create_texture_sampler(&logical_device, mip_levels);
         let (vertex_buffer, vertex_buffer_memory) = share::pipeline::create_vertex_buffer(
             &instance,
             &logical_device,
             physical_device,
             command_pool,
             graphics_queue,
-            &vertices,
+            &RECT_VERTICES_DATA,
         );
         let (index_buffer, index_buffer_memory) = share::pipeline::create_index_buffer(
             &instance,
@@ -201,7 +186,7 @@ impl VulkanAppImpl {
             physical_device,
             command_pool,
             graphics_queue,
-            &indices,
+            &RECT_INDICES_DATA,
         );
         let (uniform_buffers, uniform_buffers_memory) = share::pipeline::create_uniform_buffers(
             &logical_device,
@@ -217,8 +202,7 @@ impl VulkanAppImpl {
             descriptor_pool,
             ubo_layout,
             &uniform_buffers,
-            texture_image_view,
-            texture_sampler,
+            Option::None,
             swapchain_stuff.swapchain_images.len(),
         );
         let command_buffers = share::pipeline::create_command_buffers(
@@ -232,7 +216,7 @@ impl VulkanAppImpl {
             index_buffer,
             pipeline_layout,
             &descriptor_sets,
-            indices.len() as u32,
+            RECT_INDICES_DATA.len() as u32,
         );
         let sync_objects =
             share::pipeline::create_sync_objects(&logical_device, MAX_FRAMES_IN_FLIGHT);
@@ -272,39 +256,20 @@ impl VulkanAppImpl {
             depth_image_view,
             depth_image_memory,
 
-            _mip_levels: mip_levels,
-            texture_image,
-            texture_image_memory,
-            texture_image_view,
-            texture_sampler,
-
-            _vertices: vertices,
-            indices,
+            // _mip_levels: mip_levels,
+            // texture_image,
+            // texture_image_memory,
+            // texture_image_view,
+            // texture_sampler,
+            _vertices: RECT_VERTICES_DATA.to_vec(),
+            indices: RECT_INDICES_DATA.to_vec(),
 
             vertex_buffer,
             vertex_buffer_memory,
             index_buffer,
             index_buffer_memory,
 
-            uniform_transform: UniformBufferObject {
-                model: Matrix4::from_angle_z(Deg(90.0)),
-                view: Matrix4::look_at(
-                    Point3::new(2.0, 2.0, 2.0),
-                    Point3::new(0.0, 0.0, 0.0),
-                    Vector3::new(0.0, 0.0, 1.0),
-                ),
-                proj: {
-                    let mut proj = cgmath::perspective(
-                        Deg(45.0),
-                        swapchain_stuff.swapchain_extent.width as f32
-                            / swapchain_stuff.swapchain_extent.height as f32,
-                        0.1,
-                        10.0,
-                    );
-                    proj[1][1] = proj[1][1] * -1.0;
-                    proj
-                },
-            },
+            uniform_transform: UniformBufferObject { u_time: 0.0 },
             uniform_buffers,
             uniform_buffers_memory,
 
@@ -342,9 +307,7 @@ impl VulkanAppImpl {
     }
 
     fn update_uniform_buffer(&mut self, current_image: usize, delta_time: f32) {
-        self.uniform_transform.model =
-            Matrix4::from_axis_angle(Vector3::new(0.0, 0.0, 1.0), Deg(90.0) * delta_time)
-                * self.uniform_transform.model;
+        self.uniform_transform.u_time = self.uniform_transform.u_time + delta_time;
 
         let ubos = [self.uniform_transform.clone()];
 
@@ -507,8 +470,8 @@ impl VulkanApp for VulkanAppImpl {
             self.render_pass,
             swapchain_stuff.swapchain_extent,
             self.ubo_layout,
-            &VertexV3::get_binding_descriptions(),
-            &VertexV3::get_attribute_descriptions(),
+            &VertexV2::get_binding_descriptions(),
+            &VertexV2::get_attribute_descriptions(),
         );
         self.graphics_pipeline = graphics_pipeline;
         self.pipeline_layout = pipeline_layout;
@@ -552,8 +515,7 @@ impl VulkanApp for VulkanAppImpl {
             self.descriptor_pool,
             self.ubo_layout,
             &self.uniform_buffers,
-            self.texture_image_view,
-            self.texture_sampler,
+            Option::None,
             self.swapchain_images.len(),
         );
         self.command_buffers = share::pipeline::create_command_buffers(
@@ -639,11 +601,11 @@ impl Drop for VulkanAppImpl {
             self.device.destroy_buffer(self.vertex_buffer, None);
             self.device.free_memory(self.vertex_buffer_memory, None);
 
-            self.device.destroy_sampler(self.texture_sampler, None);
-            self.device
-                .destroy_image_view(self.texture_image_view, None);
-            self.device.destroy_image(self.texture_image, None);
-            self.device.free_memory(self.texture_image_memory, None);
+            // self.device.destroy_sampler(self.texture_sampler, None);
+            // self.device
+            //     .destroy_image_view(self.texture_image_view, None);
+            // self.device.destroy_image(self.texture_image, None);
+            // self.device.free_memory(self.texture_image_memory, None);
 
             self.device
                 .destroy_descriptor_set_layout(self.ubo_layout, None);
